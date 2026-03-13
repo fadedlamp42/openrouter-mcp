@@ -1,4 +1,4 @@
-﻿# OpenRouter MCP Server
+﻿# OpenRouter MCP Server (`ses_31c3b9172ffe4zDeyp4w3ZIoLD`)
 
 [![npm version](https://img.shields.io/npm/v/@physics91/openrouter-mcp?logo=npm)](https://www.npmjs.com/package/@physics91/openrouter-mcp)
 [![repo version](https://img.shields.io/badge/dynamic/json?url=https://raw.githubusercontent.com/physics91/openrouter-mcp/develop/package.json&query=%24.version&label=repo%20version)](https://github.com/physics91/openrouter-mcp/blob/develop/package.json)
