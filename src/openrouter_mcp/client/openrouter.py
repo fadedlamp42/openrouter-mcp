@@ -3,7 +3,7 @@ import logging
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from types import TracebackType
-from typing import Any, AsyncGenerator, Dict, List, NoReturn, Optional
+from typing import Any, AsyncGenerator, Dict, List, NoReturn, Optional, Union
 
 import httpx
 
@@ -174,7 +174,8 @@ class OpenRouterClient:
         api_key = get_required_env(EnvVars.API_KEY)
         return cls(
             api_key=api_key,
-            base_url=get_env_value(EnvVars.BASE_URL, APIConfig.BASE_URL) or APIConfig.BASE_URL,
+            base_url=get_env_value(EnvVars.BASE_URL, APIConfig.BASE_URL)
+            or APIConfig.BASE_URL,
             app_name=get_env_value(EnvVars.APP_NAME),
             http_referer=get_env_value(EnvVars.HTTP_REFERER),
         )
@@ -210,7 +211,9 @@ class OpenRouterClient:
                 raise ValueError("Message must have 'role' and 'content' fields")
 
             if message["role"] not in valid_roles:
-                raise ValueError(f"Invalid role: {message['role']}. Must be one of {valid_roles}")
+                raise ValueError(
+                    f"Invalid role: {message['role']}. Must be one of {valid_roles}"
+                )
 
     def _validate_messages_if_text(self, messages: List[Dict[str, Any]]) -> None:
         """Validate messages when they are simple text-only payloads."""
@@ -275,10 +278,14 @@ class OpenRouterClient:
         """Handle non-HTTP request errors (connect, timeout, generic)."""
         if isinstance(e, httpx.ConnectError):
             self.logger.error(f"Connection error for {context} {url}: {str(e)}")
-            raise OpenRouterError("Network error: Failed to connect to OpenRouter API") from e
+            raise OpenRouterError(
+                "Network error: Failed to connect to OpenRouter API"
+            ) from e
         if isinstance(e, httpx.TimeoutException):
             self.logger.error(f"Timeout error for {context} {url}: {str(e)}")
-            raise OpenRouterError(f"Request timeout after {self.timeout} seconds") from e
+            raise OpenRouterError(
+                f"Request timeout after {self.timeout} seconds"
+            ) from e
         self.logger.error(f"Unexpected error for {context} {url}: {str(e)}")
         raise OpenRouterError(f"Unexpected error: {str(e)}") from e
 
@@ -317,7 +324,9 @@ class OpenRouterClient:
 
             response_data = await maybe_await(response.json())
             if not isinstance(response_data, dict):
-                raise OpenRouterError(f"Unexpected response type: {type(response_data).__name__}")
+                raise OpenRouterError(
+                    f"Unexpected response type: {type(response_data).__name__}"
+                )
 
             # Sanitize response for logging
             if "choices" in response_data or "data" in response_data:
@@ -329,14 +338,18 @@ class OpenRouterClient:
                     self.logger.debug(f"Response data: {sanitized_response}")
                 else:
                     # For non-completion responses (like model lists), log keys only
-                    self.logger.debug(f"Response data keys: {list(response_data.keys())}")
+                    self.logger.debug(
+                        f"Response data keys: {list(response_data.keys())}"
+                    )
             else:
                 self.logger.debug(f"Response data keys: {list(response_data.keys())}")
 
             return response_data
 
         except httpx.HTTPStatusError as e:
-            self.logger.warning(f"HTTP error {e.response.status_code} for {method} {url}")
+            self.logger.warning(
+                f"HTTP error {e.response.status_code} for {method} {url}"
+            )
             await self._handle_http_error(e.response)
         except Exception as e:
             self._handle_request_error(e, method, url)
@@ -372,14 +385,18 @@ class OpenRouterClient:
                     if line.startswith("data: "):
                         data = line[6:]  # Remove "data: " prefix
                         if data.strip() == "[DONE]":
-                            self.logger.debug(f"Stream completed after {chunk_count} chunks")
+                            self.logger.debug(
+                                f"Stream completed after {chunk_count} chunks"
+                            )
                             break
                         try:
                             chunk = json_lib.loads(data)
                             chunk_count += 1
 
                             # Log chunk metadata only (don't log content even in verbose mode for streaming)
-                            if chunk_count % 10 == 1:  # Log every 10th chunk to reduce noise
+                            if (
+                                chunk_count % 10 == 1
+                            ):  # Log every 10th chunk to reduce noise
                                 self.logger.debug(
                                     f"Streaming chunk {chunk_count} "
                                     f"(keys: {list(chunk.keys()) if isinstance(chunk, dict) else 'non-dict'})"
@@ -394,7 +411,9 @@ class OpenRouterClient:
                             continue
 
         except httpx.HTTPStatusError as e:
-            self.logger.warning(f"HTTP error {e.response.status_code} for streaming POST {url}")
+            self.logger.warning(
+                f"HTTP error {e.response.status_code} for streaming POST {url}"
+            )
             await self._handle_http_error(e.response)
         except Exception as e:
             self._handle_request_error(e, "streaming POST", url)
@@ -487,7 +506,9 @@ class OpenRouterClient:
                 # Continue to API fetch
 
         # Fallback: Fetch directly from API if cache is disabled or failed
-        self.logger.info(f"Fetching models directly from API with filter: {filter_by or 'none'}")
+        self.logger.info(
+            f"Fetching models directly from API with filter: {filter_by or 'none'}"
+        )
 
         params: Dict[str, Any] = {}
         if filter_by:
@@ -499,7 +520,9 @@ class OpenRouterClient:
             self.logger.warning("Unexpected model list format from API")
             return []
 
-        models: List[Dict[str, Any]] = [model for model in models_raw if isinstance(model, dict)]
+        models: List[Dict[str, Any]] = [
+            model for model in models_raw if isinstance(model, dict)
+        ]
 
         self.logger.info(f"Retrieved {len(models)} models from API")
         return models
@@ -635,22 +658,426 @@ class OpenRouterClient:
     async def track_usage(
         self, start_date: Optional[str] = None, end_date: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Track API usage statistics.
+        """Deprecated: use get_generation(id) or get_activity() instead.
+
+        Kept for backward compatibility but now calls get_activity.
+        """
+        return await self.get_activity(date=start_date)
+
+    async def _make_request_flexible(
+        self,
+        method: str,
+        endpoint: str,
+        json: Optional[Dict[str, Any]] = None,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Union[Dict[str, Any], List[Any]]:
+        """like _make_request but allows array responses too."""
+        url = f"{self.base_url}{endpoint}"
+        headers = self._get_headers()
+        self._log_request(method, url, headers, payload=json, params=params)
+
+        try:
+            response = await self._client.request(
+                method=method, url=url, headers=headers, json=json, params=params
+            )
+            self.logger.debug(f"Response status: {response.status_code}")
+            await maybe_await(response.raise_for_status())
+            return await maybe_await(response.json())
+
+        except httpx.HTTPStatusError as e:
+            self.logger.warning(
+                f"HTTP error {e.response.status_code} for {method} {url}"
+            )
+            await self._handle_http_error(e.response)
+        except Exception as e:
+            self._handle_request_error(e, method, url)
+
+    # ── generation stats ──
+
+    async def get_generation(self, generation_id: str) -> Dict[str, Any]:
+        """get request and usage metadata for a single generation.
 
         Args:
-            start_date: Start date for usage tracking (YYYY-MM-DD)
-            end_date: End date for usage tracking (YYYY-MM-DD)
+            generation_id: the generation ID (returned in chat completion responses)
 
         Returns:
-            Usage statistics dictionary
+            generation metadata including tokens, cost, model, and latency
+        """
+        return await self._make_request(
+            "GET", "/generation", params={"id": generation_id}
+        )
+
+    # ── model endpoints / providers ──
+
+    async def list_model_endpoints(
+        self, author: str, slug: str
+    ) -> Union[Dict[str, Any], List[Any]]:
+        """list all provider endpoints serving a specific model.
+
+        Args:
+            author: model author (e.g. "openai")
+            slug: model slug (e.g. "gpt-4")
+        """
+        return await self._make_request_flexible(
+            "GET", f"/models/{author}/{slug}/endpoints"
+        )
+
+    async def list_providers(self) -> Union[Dict[str, Any], List[Any]]:
+        """list all available providers."""
+        return await self._make_request_flexible("GET", "/providers")
+
+    async def get_models_count(self) -> Dict[str, Any]:
+        """get total count of available models."""
+        return await self._make_request("GET", "/models/count")
+
+    async def list_user_models(self) -> Dict[str, Any]:
+        """list models filtered by user provider preferences, privacy settings, and guardrails."""
+        return await self._make_request("GET", "/models/user")
+
+    async def list_zdr_endpoints(self) -> Union[Dict[str, Any], List[Any]]:
+        """preview the impact of Zero Data Retention on available endpoints."""
+        return await self._make_request_flexible("GET", "/endpoints/zdr")
+
+    # ── account / credits ──
+
+    async def get_credits(self) -> Dict[str, Any]:
+        """get remaining credits for the current API key."""
+        return await self._make_request("GET", "/credits")
+
+    async def get_current_key(self) -> Dict[str, Any]:
+        """get info about the current API key."""
+        return await self._make_request("GET", "/key")
+
+    async def get_activity(self, date: Optional[str] = None) -> Dict[str, Any]:
+        """get user activity grouped by endpoint.
+
+        Args:
+            date: filter by UTC date (YYYY-MM-DD), must be within last 30 days
         """
         params = {}
-        if start_date:
-            params["start_date"] = start_date
-        if end_date:
-            params["end_date"] = end_date
+        if date:
+            params["date"] = date
+        return await self._make_request("GET", "/activity", params=params)
 
-        return await self._make_request("GET", "/generation", params=params)
+    # ── API key management ──
+
+    async def list_api_keys(
+        self,
+        include_disabled: Optional[bool] = None,
+        offset: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """list API keys for the current account."""
+        params: Dict[str, Any] = {}
+        if include_disabled is not None:
+            params["include_disabled"] = str(include_disabled).lower()
+        if offset is not None:
+            params["offset"] = offset
+        return await self._make_request("GET", "/keys", params=params)
+
+    async def create_api_key(
+        self,
+        name: str,
+        limit: Optional[float] = None,
+        limit_reset: Optional[str] = None,
+        include_byok_in_limit: Optional[bool] = None,
+        expires_at: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """create a new API key."""
+        payload: Dict[str, Any] = {"name": name}
+        if limit is not None:
+            payload["limit"] = limit
+        if limit_reset is not None:
+            payload["limit_reset"] = limit_reset
+        if include_byok_in_limit is not None:
+            payload["include_byok_in_limit"] = include_byok_in_limit
+        if expires_at is not None:
+            payload["expires_at"] = expires_at
+        return await self._make_request("POST", "/keys", json=payload)
+
+    async def get_api_key(self, key_hash: str) -> Dict[str, Any]:
+        """get a single API key by hash."""
+        return await self._make_request("GET", f"/keys/{key_hash}")
+
+    async def update_api_key(
+        self,
+        key_hash: str,
+        name: Optional[str] = None,
+        disabled: Optional[bool] = None,
+        limit: Optional[float] = None,
+        limit_reset: Optional[str] = None,
+        include_byok_in_limit: Optional[bool] = None,
+    ) -> Dict[str, Any]:
+        """update an API key."""
+        payload: Dict[str, Any] = {}
+        if name is not None:
+            payload["name"] = name
+        if disabled is not None:
+            payload["disabled"] = disabled
+        if limit is not None:
+            payload["limit"] = limit
+        if limit_reset is not None:
+            payload["limit_reset"] = limit_reset
+        if include_byok_in_limit is not None:
+            payload["include_byok_in_limit"] = include_byok_in_limit
+        return await self._make_request("PATCH", f"/keys/{key_hash}", json=payload)
+
+    async def delete_api_key(self, key_hash: str) -> Dict[str, Any]:
+        """delete an API key."""
+        return await self._make_request("DELETE", f"/keys/{key_hash}")
+
+    # ── embeddings ──
+
+    async def create_embedding(
+        self,
+        model: str,
+        input_text: Union[str, List[str]],
+        encoding_format: Optional[str] = None,
+        dimensions: Optional[int] = None,
+        user: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """create embeddings for the given input text."""
+        payload: Dict[str, Any] = {"model": model, "input": input_text}
+        if encoding_format is not None:
+            payload["encoding_format"] = encoding_format
+        if dimensions is not None:
+            payload["dimensions"] = dimensions
+        if user is not None:
+            payload["user"] = user
+        return await self._make_request("POST", "/embeddings", json=payload)
+
+    async def list_embedding_models(self) -> Union[Dict[str, Any], List[Any]]:
+        """list all available embedding models."""
+        return await self._make_request_flexible("GET", "/embeddings/models")
+
+    # ── responses API (OpenAI-compatible) ──
+
+    async def create_response(
+        self,
+        model: str,
+        input_data: Any,
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
+        """create a response using OpenRouter's Responses API.
+
+        Args:
+            model: model identifier
+            input_data: string or array of input items
+            **kwargs: additional params (tools, temperature, max_output_tokens, etc.)
+        """
+        payload: Dict[str, Any] = {"model": model, "input": input_data, **kwargs}
+        return await self._make_request("POST", "/responses", json=payload)
+
+    # ── messages API (Anthropic-compatible) ──
+
+    async def create_message(
+        self,
+        model: str,
+        messages: List[Dict[str, Any]],
+        max_tokens: int = 1024,
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
+        """create a message using the Anthropic Messages API format.
+
+        Args:
+            model: model identifier
+            messages: list of message objects
+            max_tokens: maximum tokens to generate
+            **kwargs: additional params (system, temperature, tools, etc.)
+        """
+        payload: Dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            **kwargs,
+        }
+        return await self._make_request("POST", "/messages", json=payload)
+
+    # ── auth ──
+
+    async def exchange_auth_code(
+        self,
+        code: str,
+        code_verifier: Optional[str] = None,
+        code_challenge_method: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """exchange an authorization code for an API key."""
+        payload: Dict[str, Any] = {"code": code}
+        if code_verifier is not None:
+            payload["code_verifier"] = code_verifier
+        if code_challenge_method is not None:
+            payload["code_challenge_method"] = code_challenge_method
+        return await self._make_request("POST", "/auth/keys", json=payload)
+
+    async def create_auth_code(
+        self,
+        callback_url: str,
+        code_challenge: Optional[str] = None,
+        code_challenge_method: Optional[str] = None,
+        limit: Optional[float] = None,
+        expires_at: Optional[str] = None,
+        key_label: Optional[str] = None,
+        usage_limit_type: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """create an authorization code for OAuth PKCE flow."""
+        payload: Dict[str, Any] = {"callback_url": callback_url}
+        for key, value in {
+            "code_challenge": code_challenge,
+            "code_challenge_method": code_challenge_method,
+            "limit": limit,
+            "expires_at": expires_at,
+            "key_label": key_label,
+            "usage_limit_type": usage_limit_type,
+        }.items():
+            if value is not None:
+                payload[key] = value
+        return await self._make_request("POST", "/auth/keys/code", json=payload)
+
+    # ── credits / coinbase ──
+
+    async def create_coinbase_charge(
+        self,
+        amount: float,
+        sender: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """create a Coinbase Commerce charge for adding credits."""
+        payload: Dict[str, Any] = {"amount": amount}
+        if sender is not None:
+            payload["sender"] = sender
+        return await self._make_request("POST", "/credits/coinbase", json=payload)
+
+    # ── guardrails ──
+
+    async def list_guardrails(
+        self,
+        offset: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """list guardrails for the current organization."""
+        params: Dict[str, Any] = {}
+        if offset is not None:
+            params["offset"] = offset
+        if limit is not None:
+            params["limit"] = limit
+        return await self._make_request("GET", "/guardrails", params=params)
+
+    async def create_guardrail(self, name: str, **kwargs: Any) -> Dict[str, Any]:
+        """create a guardrail."""
+        payload: Dict[str, Any] = {"name": name, **kwargs}
+        return await self._make_request("POST", "/guardrails", json=payload)
+
+    async def get_guardrail(self, guardrail_id: str) -> Dict[str, Any]:
+        """get a guardrail by ID."""
+        return await self._make_request("GET", f"/guardrails/{guardrail_id}")
+
+    async def update_guardrail(
+        self, guardrail_id: str, **kwargs: Any
+    ) -> Dict[str, Any]:
+        """update a guardrail."""
+        return await self._make_request(
+            "PATCH", f"/guardrails/{guardrail_id}", json=kwargs
+        )
+
+    async def delete_guardrail(self, guardrail_id: str) -> Dict[str, Any]:
+        """delete a guardrail."""
+        return await self._make_request("DELETE", f"/guardrails/{guardrail_id}")
+
+    async def list_guardrail_key_assignments(
+        self,
+        guardrail_id: str,
+        offset: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """list key assignments for a guardrail."""
+        params: Dict[str, Any] = {}
+        if offset is not None:
+            params["offset"] = offset
+        if limit is not None:
+            params["limit"] = limit
+        return await self._make_request(
+            "GET", f"/guardrails/{guardrail_id}/assignments/keys", params=params
+        )
+
+    async def assign_keys_to_guardrail(
+        self, guardrail_id: str, key_hashes: List[str]
+    ) -> Dict[str, Any]:
+        """bulk assign keys to a guardrail."""
+        return await self._make_request(
+            "POST",
+            f"/guardrails/{guardrail_id}/assignments/keys",
+            json={"key_hashes": key_hashes},
+        )
+
+    async def unassign_keys_from_guardrail(
+        self, guardrail_id: str, key_hashes: List[str]
+    ) -> Dict[str, Any]:
+        """bulk unassign keys from a guardrail."""
+        return await self._make_request(
+            "POST",
+            f"/guardrails/{guardrail_id}/assignments/keys/remove",
+            json={"key_hashes": key_hashes},
+        )
+
+    async def list_guardrail_member_assignments(
+        self,
+        guardrail_id: str,
+        offset: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """list member assignments for a guardrail."""
+        params: Dict[str, Any] = {}
+        if offset is not None:
+            params["offset"] = offset
+        if limit is not None:
+            params["limit"] = limit
+        return await self._make_request(
+            "GET", f"/guardrails/{guardrail_id}/assignments/members", params=params
+        )
+
+    async def assign_members_to_guardrail(
+        self, guardrail_id: str, member_user_ids: List[str]
+    ) -> Dict[str, Any]:
+        """bulk assign members to a guardrail."""
+        return await self._make_request(
+            "POST",
+            f"/guardrails/{guardrail_id}/assignments/members",
+            json={"member_user_ids": member_user_ids},
+        )
+
+    async def unassign_members_from_guardrail(
+        self, guardrail_id: str, member_user_ids: List[str]
+    ) -> Dict[str, Any]:
+        """bulk unassign members from a guardrail."""
+        return await self._make_request(
+            "POST",
+            f"/guardrails/{guardrail_id}/assignments/members/remove",
+            json={"member_user_ids": member_user_ids},
+        )
+
+    async def list_all_key_assignments(
+        self, offset: Optional[int] = None, limit: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """list all key assignments across guardrails."""
+        params: Dict[str, Any] = {}
+        if offset is not None:
+            params["offset"] = offset
+        if limit is not None:
+            params["limit"] = limit
+        return await self._make_request(
+            "GET", "/guardrails/assignments/keys", params=params
+        )
+
+    async def list_all_member_assignments(
+        self, offset: Optional[int] = None, limit: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """list all member assignments across guardrails."""
+        params: Dict[str, Any] = {}
+        if offset is not None:
+            params["offset"] = offset
+        if limit is not None:
+            params["limit"] = limit
+        return await self._make_request(
+            "GET", "/guardrails/assignments/members", params=params
+        )
 
     async def close(self) -> None:
         """Close the HTTP client."""

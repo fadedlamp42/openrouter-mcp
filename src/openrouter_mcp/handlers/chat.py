@@ -25,94 +25,49 @@ class ChatCompletionRequest(BaseChatRequest):
 class ModelListRequest(BaseModel):
     """Request for listing available models."""
 
-    filter_by: Optional[str] = Field(None, description="Filter models by name substring")
-
-
-class UsageStatsRequest(BaseModel):
-    """Request for usage statistics."""
-
-    start_date: Optional[str] = Field(
-        None, description="Start date for usage tracking (YYYY-MM-DD)"
+    filter_by: Optional[str] = Field(
+        None, description="Filter models by name substring"
     )
-    end_date: Optional[str] = Field(None, description="End date for usage tracking (YYYY-MM-DD)")
+
+
+class GetGenerationRequest(BaseModel):
+    """Request for getting generation metadata."""
+
+    id: str = Field(
+        ..., description="Generation ID returned in chat completion responses"
+    )
 
 
 @mcp.tool()
-async def chat_with_model(
-    request: ChatCompletionRequest,
-) -> Union[Dict[str, Any], List[Dict[str, Any]]]:
-    """
-    Generate chat completion using OpenRouter API.
+async def get_generation(request: GetGenerationRequest) -> Dict[str, Any]:
+    """Get request and usage metadata for a generation.
 
-    This tool allows you to have conversations with various AI models through OpenRouter.
-    You can specify the model, conversation messages, and various parameters like temperature.
+    Look up cost, token counts, model, latency, and other metadata for a
+    past chat completion by its generation ID.
 
     Args:
-        request: Chat completion request containing model, messages, and parameters
+        request: Request containing the generation ID
 
     Returns:
-        For non-streaming: Single response dictionary with choices and usage
-        For streaming: List of response chunks
+        Dictionary with generation metadata including tokens_prompt,
+        tokens_completion, total_cost, model, provider, latency, etc.
 
     Raises:
-        ValueError: If request parameters are invalid
         OpenRouterError: If the API request fails
 
     Example:
-        request = ChatCompletionRequest(
-            model="openai/gpt-4",
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": "What is the capital of France?"}
-            ],
-            temperature=0.7
-        )
-        response = await chat_with_model(request)
+        request = GetGenerationRequest(id="gen-abc123...")
+        stats = await get_generation(request)
     """
-    logger.info(f"Processing chat completion request for model: {request.model}")
-
-    # Convert Pydantic models to dict format expected by client
-    messages = serialize_messages(request.messages)
-
-    # Get shared client (already in async context, no need for 'async with')
+    logger.info(f"Getting generation metadata for {request.id}")
     client = await get_openrouter_client()
 
     try:
-        if request.stream:
-            logger.info("Initiating streaming chat completion")
-            chunks = cast(
-                List[Dict[str, Any]],
-                await collect_async_iterable(
-                    client.stream_chat_completion(
-                        model=request.model,
-                        messages=messages,
-                        temperature=request.temperature,
-                        max_tokens=request.max_tokens,
-                    )
-                ),
-            )
-
-            logger.info(f"Streaming completed with {len(chunks)} chunks")
-            return chunks
-        else:
-            logger.info("Initiating non-streaming chat completion")
-            response = await client.chat_completion(
-                model=request.model,
-                messages=messages,
-                temperature=request.temperature,
-                max_tokens=request.max_tokens,
-                stream=False,
-            )
-            if not isinstance(response, dict):
-                raise ValueError("Invalid response format from chat completion")
-
-            logger.info(
-                f"Chat completion successful, tokens used: {response.get('usage', {}).get('total_tokens', 'unknown')}"
-            )
-            return response
-
+        result = await client.get_generation(request.id)
+        logger.info(f"Retrieved generation metadata for {request.id}")
+        return result
     except Exception as e:
-        logger.error(f"Chat completion failed: {str(e)}")
+        logger.error(f"Failed to get generation: {str(e)}")
         raise
 
 
@@ -161,48 +116,30 @@ async def list_available_models(request: ModelListRequest) -> List[Dict[str, Any
 
 
 @mcp.tool()
-async def get_usage_stats(request: UsageStatsRequest) -> Dict[str, Any]:
-    """
-    Get API usage statistics from OpenRouter.
+async def get_usage_stats(request: GetGenerationRequest) -> Dict[str, Any]:
+    """Get request and usage metadata for a generation.
 
-    This tool retrieves usage statistics for your OpenRouter API account,
-    including total costs, token usage, and request counts. You can optionally
-    specify a date range to get statistics for a specific period.
+    Look up cost, token counts, model, latency, and other metadata for a
+    past chat completion by its generation ID.
 
     Args:
-        request: Usage stats request with optional date range
+        request: Request containing the generation ID
 
     Returns:
-        Dictionary containing usage statistics:
-        - total_cost: Total cost in USD
-        - total_tokens: Total tokens used
-        - requests: Number of API requests made
-        - models: List of models used
-
-    Raises:
-        OpenRouterError: If the API request fails
+        Dictionary with generation metadata including tokens_prompt,
+        tokens_completion, total_cost, model, provider, latency, etc.
 
     Example:
-        request = UsageStatsRequest(
-            start_date="2024-01-01",
-            end_date="2024-01-31"
-        )
+        request = GetGenerationRequest(id="gen-abc123...")
         stats = await get_usage_stats(request)
     """
-    logger.info(
-        f"Getting usage stats from {request.start_date or 'beginning'} to {request.end_date or 'now'}"
-    )
-
-    # Get shared client (already in async context, no need for 'async with')
+    logger.info(f"Getting generation metadata for {request.id}")
     client = await get_openrouter_client()
 
     try:
-        stats = await client.track_usage(start_date=request.start_date, end_date=request.end_date)
-        if not isinstance(stats, dict):
-            raise ValueError("Invalid usage stats response format")
-        logger.info(f"Retrieved usage stats: {stats.get('total_cost', 'unknown')} USD total cost")
-        return stats
-
+        result = await client.get_generation(request.id)
+        logger.info(f"Retrieved generation metadata for {request.id}")
+        return result
     except Exception as e:
-        logger.error(f"Failed to get usage stats: {str(e)}")
+        logger.error(f"Failed to get generation: {str(e)}")
         raise

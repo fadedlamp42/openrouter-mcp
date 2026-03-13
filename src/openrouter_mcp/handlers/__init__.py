@@ -8,6 +8,13 @@ _HANDLER_MODULES = (
     "free_chat",
     "mcp_benchmark",
     "multimodal",
+    "models_extended",
+    "account",
+    "keys",
+    "embeddings",
+    "responses_api",
+    "guardrails",
+    "auth",
 )
 _handlers_registered = False
 
